@@ -1,0 +1,31 @@
+{
+  "itemGroup.journeybeyond": "Journey Beyond",
+
+  "key.categories.inventory": "Inventory",
+  "key.journey.open": "Open Journey Menu",
+  "key.journey.toggle": "Toggle Journey Mode",
+
+  "screen.journey.title": "Journey Research",
+  "screen.journey.sacrifice": "Sacrifice",
+  "screen.journey.duplication": "Duplication",
+  "screen.journey.search": "Search",
+
+  "button.journey.open": "Journey",
+
+  "tooltip.journey.unlocked": "Unlocked",
+  "tooltip.journey.locked": "Locked",
+  "tooltip.journey.progress": "Research: %s remaining",
+
+  "message.journey.on": "Journey Mode: ON",
+  "message.journey.off": "Journey Mode: OFF",
+  "message.journey.not_unlocked": "You haven't researched this item yet.",
+  "message.journey.cannot_research": "This item cannot be researched.",
+  "message.journey.cannot_duplicate": "This item cannot be duplicated.",
+  "message.journey.duplicate_capped": "Duplication capped for this item.",
+
+  "toast.journey.unlocked_title": "Item Researched!",
+  "toast.journey.unlocked_desc": "%s is now available for duplication.",
+
+  "menu.journey.take_stack": "Take Stack",
+  "menu.journey.take_single": "Take One"
+}
