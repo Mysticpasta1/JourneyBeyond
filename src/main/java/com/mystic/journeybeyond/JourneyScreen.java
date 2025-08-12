@@ -36,6 +36,10 @@ public class JourneyScreen extends AbstractContainerScreen<JourneyMenu> {
     private static final int COLS = 8;
     private static final int ROWS = 6;
     private static final int CELL = 18;
+    private static final int ITEMS_PER_PAGE = COLS * ROWS;
+
+    // Paging
+    private int page = 0;
 
     public JourneyScreen(JourneyMenu menu, Inventory inv, Component title) {
         super(menu, inv, title);
@@ -62,9 +66,22 @@ public class JourneyScreen extends AbstractContainerScreen<JourneyMenu> {
         filteredIds = unlocked.intStream()
                 .filter(id -> {
                     Item it = BuiltInRegistries.ITEM.byId(id);
-                    return q.isEmpty() || BuiltInRegistries.ITEM.getKey(it).toString().toLowerCase(Locale.ROOT).contains(q);
+                    return it != null && (q.isEmpty() ||
+                            BuiltInRegistries.ITEM.getKey(it).toString().toLowerCase(Locale.ROOT).contains(q));
                 })
                 .boxed().collect(Collectors.toList());
+        page = 0; // reset to first page on new filter
+    }
+
+    private int totalPages() {
+        if (filteredIds == null || filteredIds.isEmpty()) return 1;
+        return Math.max(1, (filteredIds.size() + ITEMS_PER_PAGE - 1) / ITEMS_PER_PAGE);
+    }
+
+    private void clampPage() {
+        int max = totalPages() - 1;
+        if (page < 0) page = 0;
+        if (page > max) page = max;
     }
 
     @Override
@@ -81,22 +98,37 @@ public class JourneyScreen extends AbstractContainerScreen<JourneyMenu> {
         g.drawString(font, "Sacrifice", leftPos + 8, topPos + 8, TEXT_COLOR, false);
         g.drawString(font, "Duplication", leftPos + 60, topPos + 28, TEXT_COLOR, false);
 
+        // Page indicator (right of "Duplication")
+        String pageText = "Page " + (page + 1) + "/" + totalPages();
+        int pageTextX = leftPos + imageWidth - 8 - font.width(pageText);
+        g.drawString(font, pageText, pageTextX, topPos + 28, TEXT_COLOR, false);
+
         // Sacrifice slot background
         g.fill(leftPos + 8, topPos + 20, leftPos + 24, topPos + 36, SACRIFICE_BG);
 
         // Duplication grid
         int startX = leftPos + 60;
         int startY = topPos + 44;
-        int maxIcons = Math.min(filteredIds.size(), COLS * ROWS);
-        for (int i = 0; i < maxIcons; i++) {
+
+        int startIndex = page * ITEMS_PER_PAGE;
+        int remaining = Math.max(0, (filteredIds == null ? 0 : filteredIds.size()) - startIndex);
+        int toShow = Math.min(ITEMS_PER_PAGE, remaining);
+
+        // Grid tiles
+        for (int i = 0; i < toShow; i++) {
             int x = startX + (i % COLS) * CELL;
             int y = startY + (i / COLS) * CELL;
             g.fill(x - 1, y - 1, x + 17, y + 17, SLOT_BG);
         }
-        for (int i = 0; i < maxIcons; i++) {
+
+        // Items + hover
+        for (int i = 0; i < toShow; i++) {
+            int idx = startIndex + i;
             int x = startX + (i % COLS) * CELL;
             int y = startY + (i / COLS) * CELL;
-            Item it = BuiltInRegistries.ITEM.byId(filteredIds.get(i));
+
+            Item it = BuiltInRegistries.ITEM.byId(filteredIds.get(idx));
+            if (it == null) continue;
             ItemStack stack = it.getDefaultInstance();
             g.renderItem(stack, x, y);
             if (isHovering(x - leftPos, y - topPos, 16, 16, mx, my)) {
@@ -108,7 +140,6 @@ public class JourneyScreen extends AbstractContainerScreen<JourneyMenu> {
         // Inventory label position
         int invBaseX = leftPos + (imageWidth - 9 * 18) / 2;
         int invLabelY = topPos + imageHeight - 96; // where label is drawn
-        int invBaseY = invLabelY + 10;             // slot area below label
 
         // Draw label centered
         int labelX = invBaseX + (9 * 18 - font.width(this.playerInventoryTitle)) / 2;
@@ -129,19 +160,69 @@ public class JourneyScreen extends AbstractContainerScreen<JourneyMenu> {
 
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
+        // Let the search box handle clicks first
+        if (this.search != null && this.search.mouseClicked(mx, my, btn)) {
+            setFocused(this.search);
+            return true;
+        }
+
         int startX = leftPos + 60;
         int startY = topPos + 44;
-        int maxIcons = Math.min(filteredIds.size(), COLS * ROWS);
-        for (int i = 0; i < maxIcons; i++) {
+
+        int startIndex = page * ITEMS_PER_PAGE;
+        int remaining = Math.max(0, (filteredIds == null ? 0 : filteredIds.size()) - startIndex);
+        int toShow = Math.min(ITEMS_PER_PAGE, remaining);
+
+        for (int i = 0; i < toShow; i++) {
             int x = startX + (i % COLS) * CELL;
             int y = startY + (i / COLS) * CELL;
             if (mx >= x && mx < x + 16 && my >= y && my < y + 16) {
-                int id = filteredIds.get(i);
-                net.neoforged.neoforge.network.PacketDistributor.sendToServer(new C2SDuplicate(id, 64));
+                int id = filteredIds.get(startIndex + i);
+
+                // Left click = 1, Right click = full stack
+                int request;
+                if (btn == 0) {
+                    request = 1;
+                } else if (btn == 1) {
+                    Item it = BuiltInRegistries.ITEM.byId(id);
+                    if (it == null) return true;
+                    request = Math.max(1, it.getDefaultMaxStackSize());
+                } else {
+                    return true;
+                }
+
+                net.neoforged.neoforge.network.PacketDistributor.sendToServer(new C2SDuplicate(id, request));
                 return true;
             }
         }
         return super.mouseClicked(mx, my, btn);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mx, double my, double dx, double dy) {
+        // dy > 0 => scroll up (previous page), dy < 0 => next page
+        if (filteredIds != null && filteredIds.size() > ITEMS_PER_PAGE) {
+            page += (dy < 0) ? 1 : -1;
+            clampPage();
+            return true;
+        }
+        return super.mouseScrolled(mx, my, dx, dy);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // PageUp/PageDown support
+        // 201 = GLFW_KEY_PAGE_UP, 209 = GLFW_KEY_PAGE_DOWN in LWJGL key codes
+        if (keyCode == 201) { // PgUp
+            page--;
+            clampPage();
+            return true;
+        } else if (keyCode == 209) { // PgDn
+            page++;
+            clampPage();
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override

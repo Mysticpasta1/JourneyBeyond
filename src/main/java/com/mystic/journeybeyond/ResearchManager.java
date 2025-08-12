@@ -9,24 +9,11 @@ import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.util.profiling.ProfilerFiller;
-import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.Rarity;
 
 import java.util.Map;
 
-/**
- * Loads research costs from data packs in data/<namespace>/journey_research/*.json
- * Format examples:
- * { "item": "minecraft:diamond", "count": 8 }
- * { "tag": "minecraft:planks", "count": 64 }
- *
- * Defaults are prefilled for every registry item; datapack entries override.
- * Final pass adjusts by rarity and special rules:
- * - Unstackables → 1
- * - EPIC → 1   (requested)
- */
 public class ResearchManager extends SimpleJsonResourceReloadListener {
     public static final String FOLDER = "journey_research";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();

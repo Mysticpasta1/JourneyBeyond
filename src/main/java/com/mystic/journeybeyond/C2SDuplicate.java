@@ -31,13 +31,12 @@ public record C2SDuplicate(int itemId, int count) implements CustomPacketPayload
     public static void handle(C2SDuplicate msg, net.neoforged.neoforge.network.handling.IPayloadContext ctx) {
         ServerPlayer sp = (ServerPlayer) ctx.player();
         ctx.enqueueWork(() -> {
-            IJourneyData dat = sp.getCapability(JourneyCapabilities.JOURNEY_DATA, null); // Void context -> null
-            if (dat == null) return;
-            if (!dat.isUnlocked(msg.itemId())) return;
+            IJourneyData dat = sp.getCapability(JourneyCapabilities.JOURNEY_DATA, null);
+            if (dat == null || !dat.isUnlocked(msg.itemId())) return;
 
             Item item = BuiltInRegistries.ITEM.byId(msg.itemId());
 
-            int amount = Math.min(msg.count(), item.getDefaultMaxStackSize());
+            int amount = Math.min(Math.max(1, msg.count()), item.getDefaultMaxStackSize());
             if (amount <= 0) return;
 
             ItemStack give = new ItemStack(item, amount);
