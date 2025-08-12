@@ -117,9 +117,9 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
     private static int defaultCost(int itemId, Item item) {
         int max = item.getDefaultMaxStackSize();
         if (max <= 1) return 1;      // unstackable / damageable
-        if (max <= 16) return 8;     // low-stack items
-        if (item instanceof BlockItem) return 175; // blocks a bit grindier by default
-        return 100;                  // everything else
+        if (max <= 16) return 125;     // low-stack items
+        if (item instanceof BlockItem) return 275; // blocks a bit grindier by default
+        return 200;                  // everything else
     }
 
     /** Null-safe rarity read that avoids MatchException callers. */
