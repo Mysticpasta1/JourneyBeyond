@@ -45,7 +45,7 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
         // 1) Prefill defaults for EVERY item so everything has a cost
         for (Item item : BuiltInRegistries.ITEM) {
             int id = BuiltInRegistries.ITEM.getId(item);
-            REQUIRED.put(id, defaultCost(id, item));
+            REQUIRED.put(id, defaultCost(item));
         }
 
         // 2) Apply datapack overrides (items and tags)
@@ -59,7 +59,7 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
             if (root.has("item") && root.get("item").isJsonPrimitive()) {
                 String itemStr = root.get("item").getAsString();
                 Item it = BuiltInRegistries.ITEM.get(ResourceLocation.parse(itemStr));
-                if (it != null && it != Items.AIR) {
+                if (it != Items.AIR) {
                     int id = BuiltInRegistries.ITEM.getId(it);
                     if (id >= 0) REQUIRED.put(id, count);
                 }
@@ -88,23 +88,8 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
                 continue;
             }
 
-            // keep unstackables at 1 regardless of rarity
-            if (item.getDefaultMaxStackSize() <= 1) {
-                REQUIRED.put(id, 1);
-                continue;
-            }
-
-            // EPIC items must be exactly 1
-            Rarity rarity = safeRarity(item);
-            if (rarity == Rarity.EPIC) {
-                REQUIRED.put(id, 1);
-                continue;
-            }
-
             int current = REQUIRED.getOrDefault(id, 1);
-            float mult = rarityMultiplier(rarity);
-            int reduced = Math.max(1, (int) Math.ceil(current * mult));
-            REQUIRED.put(id, reduced);
+            REQUIRED.put(id, current);
         }
     }
 
@@ -114,34 +99,8 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
     }
 
     /** Heuristic default cost for every item (blocks included via BlockItem). */
-    private static int defaultCost(int itemId, Item item) {
-        int max = item.getDefaultMaxStackSize();
-        if (max <= 1) return 1;      // unstackable / damageable
-        if (max <= 16) return 125;     // low-stack items
-        if (item instanceof BlockItem) return 275; // blocks a bit grindier by default
-        return 200;                  // everything else
-    }
-
-    /** Null-safe rarity read that avoids MatchException callers. */
-    private static Rarity safeRarity(Item item) {
-        try {
-            var stack = item.getDefaultInstance();
-            return stack.getRarity();
-        } catch (Throwable t) {
-            // Be defensive against odd modded overrides
-            return Rarity.COMMON;
-        }
-    }
-
-    /** Rarity → multiplier (lower = easier to research). EPIC handled earlier as exactly 1. */
-    private static float rarityMultiplier(Rarity r) {
-        if (r == null) return 1.00f; // treat unknowns as COMMON
-        return switch (r) {
-            case COMMON    -> 1.00f;
-            case UNCOMMON  -> 0.75f;
-            case RARE      -> 0.30f;
-            default -> 1.00f; // won't be used; EPIC is forced to 1 above
-        };
+    private static int defaultCost(Item item) {
+        return item.getDefaultMaxStackSize();
     }
 
     /** Robust reader for "count" that tolerates missing/wrong types. */
