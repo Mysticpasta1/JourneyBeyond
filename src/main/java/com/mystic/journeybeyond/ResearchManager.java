@@ -16,6 +16,17 @@ import net.minecraft.world.item.Rarity;
 
 import java.util.Map;
 
+/**
+ * Loads research costs from data packs in data/<namespace>/journey_research/*.json
+ * Format examples:
+ * { "item": "minecraft:diamond", "count": 8 }
+ * { "tag": "minecraft:planks", "count": 64 }
+ *
+ * Defaults are prefilled for every registry item; datapack entries override.
+ * Final pass adjusts by rarity and special rules:
+ * - Unstackables → 1
+ * - EPIC → 1   (requested)
+ */
 public class ResearchManager extends SimpleJsonResourceReloadListener {
     public static final String FOLDER = "journey_research";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -23,7 +34,9 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
     // item-id (int) -> required count
     private static final Int2IntOpenHashMap REQUIRED = new Int2IntOpenHashMap();
 
-    public ResearchManager() { super(GSON, FOLDER); }
+    public ResearchManager() {
+        super(GSON, FOLDER);
+    }
 
     @Override
     protected void apply(Map<ResourceLocation, JsonElement> all, ResourceManager rm, ProfilerFiller profiler) {
@@ -37,29 +50,43 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
 
         // 2) Apply datapack overrides (items and tags)
         for (var entry : all.entrySet()) {
-            JsonObject root = entry.getValue().getAsJsonObject();
-            int count = Math.max(1, root.get("count").getAsInt());
+            JsonElement elem = entry.getValue();
+            if (elem == null || !elem.isJsonObject()) continue;
 
-            if (root.has("item")) {
-                Item it = BuiltInRegistries.ITEM.get(ResourceLocation.parse(root.get("item").getAsString()));
-                if (it != Items.AIR) {
-                    REQUIRED.put(BuiltInRegistries.ITEM.getId(it), count);
+            JsonObject root = elem.getAsJsonObject();
+            int count = readCountSafe(root);
+
+            if (root.has("item") && root.get("item").isJsonPrimitive()) {
+                String itemStr = root.get("item").getAsString();
+                Item it = BuiltInRegistries.ITEM.get(ResourceLocation.parse(itemStr));
+                if (it != null && it != Items.AIR) {
+                    int id = BuiltInRegistries.ITEM.getId(it);
+                    if (id >= 0) REQUIRED.put(id, count);
                 }
-            } else if (root.has("tag")) {
-                var tagKey = ItemTags.create(ResourceLocation.parse(root.get("tag").getAsString()));
+            } else if (root.has("tag") && root.get("tag").isJsonPrimitive()) {
+                String tagStr = root.get("tag").getAsString();
+                var tagKey = ItemTags.create(ResourceLocation.parse(tagStr));
                 BuiltInRegistries.ITEM.getTag(tagKey).ifPresent(holders -> {
                     for (Holder<Item> holder : holders) {
                         Item it = holder.value();
-                        REQUIRED.put(BuiltInRegistries.ITEM.getId(it), count);
+                        if (it == Items.AIR) continue;
+                        int id = BuiltInRegistries.ITEM.getId(it);
+                        if (id >= 0) REQUIRED.put(id, count);
                     }
                 });
             }
         }
 
-        // 3) FINAL PASS: reduce costs based on rarity (after overrides)
+        // 3) FINAL PASS: apply rarity rules after overrides
         for (Item item : BuiltInRegistries.ITEM) {
             int id = BuiltInRegistries.ITEM.getId(item);
-            int current = REQUIRED.getOrDefault(id, 1);
+            if (id < 0) continue;
+
+            // Always skip AIR / make it 1 (or skip entirely)
+            if (item == Items.AIR) {
+                REQUIRED.put(id, 1);
+                continue;
+            }
 
             // keep unstackables at 1 regardless of rarity
             if (item.getDefaultMaxStackSize() <= 1) {
@@ -67,8 +94,16 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
                 continue;
             }
 
-            float mult = rarityMultiplier(item.getDefaultInstance().getRarity());
-            int reduced = Math.max(1, (int)Math.ceil(current * mult));
+            // EPIC items must be exactly 1
+            Rarity rarity = safeRarity(item);
+            if (rarity == Rarity.EPIC) {
+                REQUIRED.put(id, 1);
+                continue;
+            }
+
+            int current = REQUIRED.getOrDefault(id, 1);
+            float mult = rarityMultiplier(rarity);
+            int reduced = Math.max(1, (int) Math.ceil(current * mult));
             REQUIRED.put(id, reduced);
         }
     }
@@ -81,19 +116,42 @@ public class ResearchManager extends SimpleJsonResourceReloadListener {
     /** Heuristic default cost for every item (blocks included via BlockItem). */
     private static int defaultCost(int itemId, Item item) {
         int max = item.getDefaultMaxStackSize();
-        if (max <= 1) return 1;     // unstackable / damageable
-        if (max <= 16) return 8;    // low-stack items
+        if (max <= 1) return 1;      // unstackable / damageable
+        if (max <= 16) return 8;     // low-stack items
         if (item instanceof BlockItem) return 175; // blocks a bit grindier by default
         return 100;                  // everything else
     }
 
-    /** Rarity → multiplier (lower = easier to research). Tweak to taste. */
+    /** Null-safe rarity read that avoids MatchException callers. */
+    private static Rarity safeRarity(Item item) {
+        try {
+            var stack = item.getDefaultInstance();
+            return stack.getRarity();
+        } catch (Throwable t) {
+            // Be defensive against odd modded overrides
+            return Rarity.COMMON;
+        }
+    }
+
+    /** Rarity → multiplier (lower = easier to research). EPIC handled earlier as exactly 1. */
     private static float rarityMultiplier(Rarity r) {
+        if (r == null) return 1.00f; // treat unknowns as COMMON
         return switch (r) {
             case COMMON    -> 1.00f;
             case UNCOMMON  -> 0.75f;
             case RARE      -> 0.30f;
-            case EPIC      -> 0.10f;
+            default -> 1.00f; // won't be used; EPIC is forced to 1 above
         };
+    }
+
+    /** Robust reader for "count" that tolerates missing/wrong types. */
+    private static int readCountSafe(JsonObject root) {
+        if (root.has("count") && root.get("count").isJsonPrimitive()) {
+            try {
+                int v = root.get("count").getAsInt();
+                return Math.max(1, v);
+            } catch (Exception ignored) {}
+        }
+        return 1;
     }
 }
